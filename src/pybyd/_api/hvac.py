@@ -105,7 +105,10 @@ def _parse_hvac_status(data: dict[str, Any]) -> HvacStatus:
 
 
 async def fetch_hvac_status(
-    config: BydConfig, session: Session, transport: SecureTransport, vin: str,
+    config: BydConfig,
+    session: Session,
+    transport: SecureTransport,
+    vin: str,
 ) -> HvacStatus:
     """Fetch current HVAC/climate control status for a vehicle."""
     now_ms = int(time.time() * 1000)
@@ -116,7 +119,8 @@ async def fetch_hvac_status(
     if str(response.get("code")) != "0":
         raise BydApiError(
             f"{_ENDPOINT} failed: code={response.get('code')} message={response.get('message', '')}",
-            code=str(response.get("code", "")), endpoint=_ENDPOINT,
+            code=str(response.get("code", "")),
+            endpoint=_ENDPOINT,
         )
 
     data = json.loads(aes_decrypt_utf8(response["respondData"], content_key))

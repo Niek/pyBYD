@@ -46,11 +46,7 @@ class ChargingStatus:
     @property
     def is_charging(self) -> bool:
         """Whether the vehicle is actively charging."""
-        return (
-            self.charging_state is not None
-            and self.charging_state != 15
-            and self.charging_state > 0
-        )
+        return self.charging_state is not None and self.charging_state != 15 and self.charging_state > 0
 
     @property
     def time_to_full_available(self) -> bool:

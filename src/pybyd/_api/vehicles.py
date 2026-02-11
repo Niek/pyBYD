@@ -159,9 +159,7 @@ def parse_vehicle_list(
                 auto_bought_time=_safe_int(item.get("autoBoughtTime")),
                 yun_active_time=_safe_int(item.get("yunActiveTime")),
                 empower_id=_safe_int(item.get("empowerId")),
-                range_detail_list=_parse_empower_ranges(
-                    item.get("rangeDetailList")
-                ),
+                range_detail_list=_parse_empower_ranges(item.get("rangeDetailList")),
                 raw=item,
             )
         )
