@@ -34,6 +34,7 @@ dev = [
     "pytest-cov>=5.0",
     "mypy>=1.10",
     "ruff>=0.5",
+    "black>=24.0",
 ]
 
 [tool.hatch.version]
@@ -59,6 +60,10 @@ line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.black]
+line-length = 120
+target-version = ["py311"]
 
 [tool.coverage.run]
 source = ["pybyd"]
