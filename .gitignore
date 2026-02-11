@@ -41,10 +41,6 @@ Thumbs.db
 .env
 .claude
 
-# Local debug outputs
-debug_commands.md
-scripts/probe_results.json
-
 # Test/coverage artifacts
 .coverage.*
 coverage.xml

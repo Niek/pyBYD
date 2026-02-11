@@ -603,6 +603,7 @@ Trigger a realtime data request to the vehicle's T-Box. Returns cached data or a
 - Door/lock/window values: 0=closed/locked, 1=open/unlocked
 - `tirePressUnit`: 1=kPa, 2=psi, 3=bar
 - `sentryStatus`: 0=off, 1=on
+- `*HeatState` / `*VentilationState`: 0=N/A, 1=off, 2–4=level 1–3
 
 ---
 
@@ -838,8 +839,8 @@ Get current HVAC/climate control status.
 - `cycleChoice`: 1=external air, 2=recirculation
 - `tempInCar`: interior temperature (°C, -129=unavailable)
 - `mainSettingTempNew`/`copilotSettingTempNew`: set temperature (°C)
-- `*HeatState`: seat/steering wheel heating level (0=off)
-- `*VentilationState`: seat ventilation level (0=off)
+- `*HeatState`: seat/steering wheel heating level (0=N/A, 1=off, 2–4=level 1–3)
+- `*VentilationState`: seat ventilation level (0=N/A, 1=off, 2–4=level 1–3)
 - `rapidIncreaseTempState`/`rapidDecreaseTempState`: rapid heating/cooling active
 
 ---

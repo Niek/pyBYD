@@ -127,24 +127,26 @@ class VehicleRealtimeData:
     """A/C running state (0=off)."""
 
     # --- Seat heating/ventilation ---
+    # Status scale: 0=N/A, 1=off, 2=level 1, 3=level 2, 4=level 3
+    # (Note: command scale is different: 0=off, 1-3=levels)
     main_seat_heat_state: int | None
-    """Driver seat heating level (0=off)."""
+    """Driver seat heating level (0=N/A, 1=off, 2–4=level 1–3)."""
     main_seat_ventilation_state: int | None
-    """Driver seat ventilation level (0=off)."""
+    """Driver seat ventilation level (0=N/A, 1=off, 2–4=level 1–3)."""
     copilot_seat_heat_state: int | None
-    """Passenger seat heating level (0=off)."""
+    """Passenger seat heating level (0=N/A, 1=off, 2–4=level 1–3)."""
     copilot_seat_ventilation_state: int | None
-    """Passenger seat ventilation level (0=off)."""
+    """Passenger seat ventilation level (0=N/A, 1=off, 2–4=level 1–3)."""
     steering_wheel_heat_state: int | None
-    """Steering wheel heating state (0=off)."""
+    """Steering wheel heating state (0=N/A, 1=off, 2–4=level 1–3)."""
     lr_seat_heat_state: int | None
-    """Left rear seat heating level."""
+    """Left rear seat heating level (0=N/A, 1=off, 2–4=level 1–3)."""
     lr_seat_ventilation_state: int | None
-    """Left rear seat ventilation level."""
+    """Left rear seat ventilation level (0=N/A, 1=off, 2–4=level 1–3)."""
     rr_seat_heat_state: int | None
-    """Right rear seat heating level."""
+    """Right rear seat heating level (0=N/A, 1=off, 2–4=level 1–3)."""
     rr_seat_ventilation_state: int | None
-    """Right rear seat ventilation level."""
+    """Right rear seat ventilation level (0=N/A, 1=off, 2–4=level 1–3)."""
 
     # --- Charging ---
     charging_state: int
