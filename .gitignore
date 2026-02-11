@@ -38,6 +38,6 @@ Thumbs.db
 .env
 .claude
 
-# Sensitive protocol docs
+# Sensitive / local-only
 PROTOCOL.md
-scripts/FINDINGS.md
+scripts/
