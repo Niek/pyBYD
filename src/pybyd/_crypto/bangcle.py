@@ -5,6 +5,7 @@ Ports encodeEnvelope and decodeEnvelope from bangcle.js.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import importlib.resources
 import logging
@@ -140,6 +141,13 @@ class BangcleCodec:
         self._tables = _load_tables_from_bin(raw)
         _logger.debug("Bangcle tables loaded successfully")
         return self._tables
+
+    async def async_load_tables(self) -> None:
+        """Pre-load tables in an executor so the event loop is not blocked."""
+        if self._tables is not None:
+            return
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._load_tables)
 
     def encode_envelope(self, plaintext: str | bytes) -> str:
         """Encode plaintext into a Bangcle envelope (``F`` + base64).

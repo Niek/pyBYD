@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import aiohttp
 
@@ -14,14 +15,14 @@ from pybyd._api.energy import fetch_energy_consumption
 from pybyd._api.gps import poll_gps_info
 from pybyd._api.hvac import fetch_hvac_status
 from pybyd._api.login import build_login_request, parse_login_response
-from pybyd._crypto.hashing import md5_hex
 from pybyd._api.realtime import poll_vehicle_realtime
 from pybyd._api.vehicles import build_list_request, parse_vehicle_list
 from pybyd._cache import VehicleDataCache
 from pybyd._crypto.bangcle import BangcleCodec
+from pybyd._crypto.hashing import md5_hex
 from pybyd._transport import SecureTransport
 from pybyd.config import BydConfig
-from pybyd.exceptions import BydApiError, BydAuthenticationError, BydError
+from pybyd.exceptions import BydApiError, BydAuthenticationError, BydError  # noqa: F401
 from pybyd.models.charging import ChargingStatus
 from pybyd.models.control import RemoteCommand, RemoteControlResult
 from pybyd.models.energy import EnergyConsumption
@@ -94,6 +95,7 @@ class BydClient:
         if self._http_session is None:
             self._http_session = aiohttp.ClientSession()
         self._transport = SecureTransport(self._config, self._codec, self._http_session)
+        await self._codec.async_load_tables()
         return self
 
     async def __aexit__(self, *exc: Any) -> None:
