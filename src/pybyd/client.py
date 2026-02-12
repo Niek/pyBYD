@@ -11,6 +11,7 @@ import aiohttp
 
 from pybyd._api.charging import fetch_charging_status
 from pybyd._api.control import poll_remote_control
+from pybyd._api.control import verify_control_password as verify_control_password_api
 from pybyd._api.energy import energy_from_realtime_cache, fetch_energy_consumption
 from pybyd._api.gps import poll_gps_info
 from pybyd._api.hvac import fetch_hvac_status
@@ -23,8 +24,13 @@ from pybyd._crypto.bangcle import BangcleCodec
 from pybyd._crypto.hashing import md5_hex
 from pybyd._transport import SecureTransport
 from pybyd.config import BydConfig
-from pybyd.exceptions import BydApiError, BydAuthenticationError, BydError  # noqa: F401
-from pybyd.exceptions import BydEndpointNotSupportedError
+from pybyd.exceptions import (
+    BydApiError,
+    BydControlPasswordError,
+    BydEndpointNotSupportedError,
+    BydError,
+    BydRateLimitError,
+)
 from pybyd.models.charging import ChargingStatus
 from pybyd.models.control import RemoteCommand, RemoteControlResult
 from pybyd.models.energy import EnergyConsumption
@@ -87,7 +93,46 @@ class BydClient:
         self._session: Session | None = None
         self._cache = VehicleDataCache()
         self._unsupported: dict[str, set[str]] = {}
+        self._vehicle_permission_codes: dict[str, set[str]] = {}
+        self._control_password_checked = False
+        self._remote_control_disabled_error: BydControlPasswordError | None = None
         self._debug_recorder = debug_recorder
+
+    @staticmethod
+    def _flatten_permission_codes(vehicle: Vehicle) -> set[str]:
+        """Flatten range detail permission codes for a vehicle."""
+        codes: set[str] = set()
+        stack = list(vehicle.range_detail_list)
+        while stack:
+            node = stack.pop()
+            code = (node.code or "").strip()
+            if code:
+                codes.add(code)
+            stack.extend(node.children)
+        return codes
+
+    @staticmethod
+    def _control_unsupported_key(command: RemoteCommand) -> str:
+        return f"control:{command.value}"
+
+    def _mark_control_unsupported(self, vin: str, command: RemoteCommand) -> None:
+        self._unsupported.setdefault(vin, set()).add(self._control_unsupported_key(command))
+
+    def _is_control_unsupported(self, vin: str, command: RemoteCommand) -> bool:
+        return self._control_unsupported_key(command) in self._unsupported.get(vin, set())
+
+    def _is_shared_basic_control_only(self, vin: str) -> bool:
+        """Whether shared-account permissions indicate only basic controls.
+
+        Observed permission shape for shared users:
+        - "2" parent scope: Keys and control
+        - "21" child scope: Basic control
+        """
+        codes = self._vehicle_permission_codes.get(vin)
+        if not codes:
+            return False
+        control_children = {code for code in codes if code.startswith("2") and code != "2"}
+        return "2" in codes and control_children == {"21"}
 
     async def __aenter__(self) -> BydClient:
         if self._http_session is None:
@@ -217,6 +262,28 @@ class BydClient:
         for vehicle in vehicles:
             if isinstance(vehicle.raw, dict) and vehicle.vin:
                 self._cache.merge_vehicle(vehicle.vin, vehicle.raw)
+                self._vehicle_permission_codes[vehicle.vin] = self._flatten_permission_codes(vehicle)
+
+        if self._config.control_pin and not self._control_password_checked:
+            check_vin = next((vehicle.vin for vehicle in vehicles if vehicle.vin), None)
+            if check_vin:
+                try:
+                    await self.verify_control_password(check_vin)
+                except BydEndpointNotSupportedError:
+                    _logger.debug(
+                        "Control password verification endpoint not supported for %s",
+                        check_vin,
+                    )
+                except BydControlPasswordError as exc:
+                    self._remote_control_disabled_error = exc
+                    _logger.warning(
+                        (
+                            "Control PIN verification failed; remote commands are "
+                            "disabled to avoid repeated API failures (code %s)"
+                        ),
+                        exc.code,
+                    )
+            self._control_password_checked = True
         return vehicles
 
     async def get_vehicle_realtime(
@@ -415,9 +482,12 @@ class BydClient:
     def _resolve_command_pwd(self, command_pwd: str | None) -> str:
         """Resolve the command password (MD5-hashed control PIN).
 
-        If *command_pwd* is provided it is used as-is (caller is
-        responsible for hashing).  Otherwise the PIN from
-        ``config.control_pin`` is MD5-hashed automatically.
+        If *command_pwd* is provided, this method accepts either:
+        - a raw PIN/plaintext (will be MD5-hashed), or
+        - an already-hashed 32-char hex digest (normalized to uppercase).
+
+        Otherwise the PIN from ``config.control_pin`` is MD5-hashed
+        automatically.
 
         Returns
         -------
@@ -426,10 +496,63 @@ class BydClient:
             if no PIN is configured.
         """
         if command_pwd is not None:
-            return command_pwd
+            stripped = command_pwd.strip()
+            if len(stripped) == 32 and all(ch in "0123456789abcdefABCDEF" for ch in stripped):
+                return stripped.upper()
+            return md5_hex(stripped)
         if self._config.control_pin:
             return md5_hex(self._config.control_pin)
         return ""
+
+    async def _verify_control_password(self, vin: str, resolved_pwd: str) -> bool:
+        """Verify control password for a VIN and cache disable-state on failure."""
+        if not resolved_pwd:
+            return False
+
+        session = await self.ensure_session()
+        transport = self._require_transport()
+        try:
+            await verify_control_password_api(
+                self._config,
+                session,
+                transport,
+                vin,
+                resolved_pwd,
+            )
+        except BydApiError as exc:
+            if exc.code not in SESSION_EXPIRED_CODES:
+                raise
+            _logger.debug("Session rejected (code %s) — re-authenticating", exc.code)
+            self.invalidate_session()
+            session = await self.ensure_session()
+            await verify_control_password_api(
+                self._config,
+                session,
+                transport,
+                vin,
+                resolved_pwd,
+            )
+        except BydControlPasswordError as exc:
+            self._remote_control_disabled_error = exc
+            raise
+
+        self._remote_control_disabled_error = None
+        return True
+
+    async def verify_control_password(
+        self,
+        vin: str,
+        *,
+        command_pwd: str | None = None,
+    ) -> bool:
+        """Verify remote control password for a VIN.
+
+        Uses ``command_pwd`` if provided, otherwise ``config.control_pin``.
+        Returns ``True`` when verification succeeds, ``False`` when no
+        control PIN/password is configured.
+        """
+        resolved_pwd = self._resolve_command_pwd(command_pwd)
+        return await self._verify_control_password(vin, resolved_pwd)
 
     async def remote_control(
         self,
@@ -492,6 +615,23 @@ class BydClient:
         BydError
             If not logged in.
         """
+        if self._is_control_unsupported(vin, command):
+            raise BydEndpointNotSupportedError(
+                f"Remote control command {command.name} is marked unsupported for {vin}",
+                code="1001",
+                endpoint="/control/remoteControl",
+            )
+        if self._remote_control_disabled_error is not None:
+            raise BydControlPasswordError(
+                "Remote control disabled: control PIN verification failed during initialization.",
+                code=self._remote_control_disabled_error.code,
+                endpoint=self._remote_control_disabled_error.endpoint,
+            )
+        if self._config.control_pin and not self._control_password_checked:
+            raise BydError(
+                "Remote control requires initialization check. Call get_vehicles() first to verify control PIN."
+            )
+
         session = await self.ensure_session()
         transport = self._require_transport()
         resolved_pwd = self._resolve_command_pwd(command_pwd)
@@ -512,28 +652,35 @@ class BydClient:
                 command_retry_delay=command_retry_delay,
                 debug_recorder=self._debug_recorder,
             )
+        except BydEndpointNotSupportedError:
+            self._mark_control_unsupported(vin, command)
+            raise
         except BydApiError as exc:
             if exc.code not in SESSION_EXPIRED_CODES:
                 raise
             _logger.debug("Session rejected (code %s) — re-authenticating", exc.code)
             self.invalidate_session()
             session = await self.ensure_session()
-            return await poll_remote_control(
-                self._config,
-                session,
-                transport,
-                vin,
-                command,
-                control_params=control_params,
-                command_pwd=resolved_pwd,
-                poll_attempts=poll_attempts,
-                poll_interval=poll_interval,
-                rate_limit_retries=rate_limit_retries,
-                rate_limit_delay=rate_limit_delay,
-                command_retries=command_retries,
-                command_retry_delay=command_retry_delay,
-                debug_recorder=self._debug_recorder,
-            )
+            try:
+                return await poll_remote_control(
+                    self._config,
+                    session,
+                    transport,
+                    vin,
+                    command,
+                    control_params=control_params,
+                    command_pwd=resolved_pwd,
+                    poll_attempts=poll_attempts,
+                    poll_interval=poll_interval,
+                    rate_limit_retries=rate_limit_retries,
+                    rate_limit_delay=rate_limit_delay,
+                    command_retries=command_retries,
+                    command_retry_delay=command_retry_delay,
+                    debug_recorder=self._debug_recorder,
+                )
+            except BydEndpointNotSupportedError:
+                self._mark_control_unsupported(vin, command)
+                raise
 
     # ── Simple commands (no controlParamsMap) ────────────────
 
@@ -788,15 +935,36 @@ class BydClient:
         on : bool
             True to enable, False to disable.
         """
+        if self._is_shared_basic_control_only(vin):
+            self._mark_control_unsupported(vin, RemoteCommand.BATTERY_HEAT)
+            raise BydEndpointNotSupportedError(
+                f"Battery heat appears unsupported for {vin} under shared 'Basic control' permission scope",
+                code="1001",
+                endpoint="/control/remoteControl",
+            )
+
         params = {"batteryHeat": 1 if on else 0}
-        return await self.remote_control(
-            vin,
-            RemoteCommand.BATTERY_HEAT,
-            control_params=params,
-            command_pwd=command_pwd,
-            poll_attempts=poll_attempts,
-            poll_interval=poll_interval,
-        )
+        try:
+            return await self.remote_control(
+                vin,
+                RemoteCommand.BATTERY_HEAT,
+                control_params=params,
+                command_pwd=command_pwd,
+                poll_attempts=poll_attempts,
+                poll_interval=poll_interval,
+            )
+        except BydRateLimitError as exc:
+            if self._is_shared_basic_control_only(vin):
+                self._mark_control_unsupported(vin, RemoteCommand.BATTERY_HEAT)
+                raise BydEndpointNotSupportedError(
+                    (
+                        f"Battery heat likely unsupported for {vin}; repeated "
+                        "BATTERY_HEAT rate limits under basic shared control"
+                    ),
+                    code="1001",
+                    endpoint="/control/remoteControl",
+                ) from exc
+            raise
 
     # ── Read-only status endpoints ───────────────────────────
 
@@ -863,7 +1031,7 @@ class BydClient:
             self._unsupported.setdefault(vin, set()).add("charging")
             return None
         except BydApiError as exc:
-            if exc.code not in _SESSION_EXPIRED_CODES:
+            if exc.code not in SESSION_EXPIRED_CODES:
                 raise
             _logger.debug("Session rejected (code %s) — re-authenticating", exc.code)
             self.invalidate_session()

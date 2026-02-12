@@ -31,6 +31,7 @@ URL base: https://dilinkappoversea-eu.byd.auto
 | `/control/getGpsInfoResult` | GPS poll | `src/pybyd/_api/gps.py` |
 | `/control/smartCharge/homePage` | Charging status | `src/pybyd/_api/charging.py` |
 | `/vehicleInfo/vehicle/getEnergyConsumption` | Energy consumption | `src/pybyd/_api/energy.py` |
+| `/vehicle/vehicleswitch/verifyControlPassword` | Verify remote-control PIN/password | `src/pybyd/_api/control.py` |
 | `/control/remoteControl` | Remote control trigger | `src/pybyd/_api/control.py` |
 | `/control/remoteControlResult` | Remote control poll | `src/pybyd/_api/control.py` |
 
@@ -67,7 +68,7 @@ Parser: `src/pybyd/_api/realtime.py`
 |---|---|---|---|---|
 | State | `onlineState` | `online_state` | `OnlineState` | 0=unknown (unconfirmed), 1=online (confirmed), 2=offline (unconfirmed) |
 | State | `connectState` | `connect_state` | `ConnectState` | -1=unknown (conflicting: seen while driving and online), 0=disconnected (unconfirmed), 1=connected (unconfirmed) |
-| State | `vehicleState` | `vehicle_state` | `VehicleState` | 0=standby (conflicting: seen while driving at 22 km/h), 1=active (unconfirmed), value `2` observed in live payloads and kept as raw int |
+| State | `vehicleState` | `vehicle_state` | `VehicleState | int` | 0=standby (conflicting: seen while driving at 22 km/h), 1=active (unconfirmed), 2 observed (confirmed; kept as raw int) |
 | State | `requestSerial` | `request_serial` | `str | None` | poll serial token |
 | Battery | `elecPercent` | `elec_percent` | `float | None` | SOC 0-100 (confirmed) |
 | Battery | `powerBattery` | `power_battery` | `float | None` | alternative SOC field (unconfirmed) |
@@ -302,6 +303,8 @@ Parser: `src/pybyd/_api/vehicles.py`
 
 ## Remote control
 
+URL (PIN verify): https://dilinkappoversea-eu.byd.auto/vehicle/vehicleswitch/verifyControlPassword
+
 URL (trigger): https://dilinkappoversea-eu.byd.auto/control/remoteControl
 
 URL (poll): https://dilinkappoversea-eu.byd.auto/control/remoteControlResult
@@ -309,6 +312,28 @@ URL (poll): https://dilinkappoversea-eu.byd.auto/control/remoteControlResult
 Model: `RemoteControlResult`
 
 Parser: `src/pybyd/_api/control.py`
+
+### PIN verify endpoint (`/vehicle/vehicleswitch/verifyControlPassword`)
+
+Observed request inner payload keys:
+
+| API field | Type | Values / notes |
+|---|---|---|
+| `commandPwd` | `str` | MD5 uppercase hex of 6-digit control PIN (confirmed) |
+| `deviceType` | `str` | e.g. `"0"` |
+| `functionType` | `str` | `"remoteControl"` |
+| `imeiMD5` | `str` | device identifier hash |
+| `networkType` | `str` | e.g. `"wifi"` |
+| `random` | `str` | random token |
+| `timeStamp` | `str` | epoch milliseconds |
+| `version` | `str` | app inner version |
+| `vin` | `str` | vehicle VIN |
+
+Observed behavior in pyBYD:
+
+- Verification is run once during initialization (`get_vehicles`) when `control_pin` is configured.
+- If verification fails (`5005` / `5006`), pyBYD disables remote commands for the client instance to avoid repeated failed calls.
+- pyBYD does not re-verify before each remote command.
 
 ### Command types
 
@@ -333,6 +358,21 @@ Parser: `src/pybyd/_api/control.py`
 | `requestSerial` | `request_serial` | `str | None` | poll serial token (unconfirmed) |
 | `res` | (immediate) | `int` | 2 observed as success (unconfirmed) |
 
+### Control error codes observed
+
+| API code | Meaning | Status | Notes |
+|---:|---|---|---|
+| `5005` | wrong operation password | confirmed | server reports remaining attempts for the day |
+| `5006` | operation password locked for today | confirmed | cloud control locked after repeated wrong PIN attempts |
+| `6024` | previous command in progress / rate-limited | confirmed | pyBYD retries trigger request; can recur for unsupported/stuck commands |
+| `1001` | command/endpoint not supported (service exception) | confirmed | pyBYD now classifies as endpoint not supported |
+
+### BATTERY_HEAT support notes
+
+- Shared-account permission set observed: `Keys and control > Basic control` (codes `2` + `21`) only.
+- For this permission profile, `BATTERYHEAT` repeatedly returned `6024` and never produced a successful control result.
+- pyBYD now treats this as unsupported for shared `Basic control` profiles and raises endpoint-not-supported early for `set_battery_heat(...)`.
+
 ---
 
 ## Enum mappings (shared)
@@ -349,7 +389,7 @@ These reflect the enums currently implemented in `src/pybyd/models/realtime.py`.
 | `ConnectState` | 1 | `CONNECTED` | unconfirmed | |
 | `VehicleState` | 0 | `STANDBY` | conflicting | observed while driving at 22 km/h |
 | `VehicleState` | 1 | `ACTIVE` | unconfirmed | |
-| `VehicleState` | 2 | (not a member) | confirmed | observed; parser keeps raw int |
+| `VehicleState` | 2 | (not a member) | confirmed | observed in realtime payloads; parser keeps raw int |
 | `ChargingState` | -1 | `DISCONNECTED` | confirmed | |
 | `ChargingState` | 0 | `NOT_CHARGING` | confirmed | |
 | `ChargingState` | 15 | `GUN_CONNECTED` | confirmed | gun plugged in, charging not active |
@@ -395,3 +435,6 @@ Realtime examples (not exhaustively maintained):
 | `repairModeSwitch` | `"0"` | mode flag (unconfirmed) |
 | `powerBatteryConnection` | `-1`, `0` | battery connectivity indicator (unconfirmed) |
 | `gl` | `9788.8`, `0` | unknown metric in realtime payload (unconfirmed) |
+| `ins` | `int` | unknown (unconfirmed) |
+| `totalConsumptionEn` | `string` | unknown label/text field (unconfirmed) |
+| `energyConsumption` | `string` | unknown consumption field (unconfirmed) |

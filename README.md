@@ -76,6 +76,7 @@ asyncio.run(main())
 | `get_vehicle_realtime(vin)` | Battery, range, speed, doors, tire pressure |
 | `get_gps_info(vin)` | GPS latitude, longitude, speed, heading |
 | `get_energy_consumption(vin)` | Energy and fuel consumption stats |
+| `verify_control_password(vin)` | Verify remote control PIN/password for a VIN |
 | `remote_control(vin, command)` | Send a remote command (see below) |
 | `lock(vin)` | Lock doors |
 | `unlock(vin)` | Unlock doors |
@@ -114,6 +115,11 @@ parameters are configurable:
 ```python
 result = await client.lock(vin, poll_attempts=15, poll_interval=2.0)
 ```
+
+If `control_pin` is configured, the client verifies it once via
+`/vehicle/vehicleswitch/verifyControlPassword` during initialization
+(`get_vehicles`). If verification fails, remote commands are disabled
+for that client instance to avoid hammering the API.
 
 ## Error handling
 

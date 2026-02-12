@@ -15,7 +15,8 @@ import json
 import logging
 import secrets
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from pybyd._api._envelope import build_token_outer_envelope
 from pybyd._constants import SESSION_EXPIRED_CODES
@@ -24,6 +25,8 @@ from pybyd._transport import SecureTransport
 from pybyd.config import BydConfig
 from pybyd.exceptions import (
     BydApiError,
+    BydControlPasswordError,
+    BydEndpointNotSupportedError,
     BydRateLimitError,
     BydRemoteControlError,
     BydSessionExpiredError,
@@ -32,6 +35,10 @@ from pybyd.models.control import ControlState, RemoteCommand, RemoteControlResul
 from pybyd.session import Session
 
 _logger = logging.getLogger(__name__)
+
+CONTROL_PASSWORD_ERROR_CODES: frozenset[str] = frozenset({"5005", "5006"})
+ENDPOINT_NOT_SUPPORTED_CODES: frozenset[str] = frozenset({"1001"})
+VERIFY_CONTROL_PASSWORD_ENDPOINT = "/vehicle/vehicleswitch/verifyControlPassword"
 
 
 def _safe_int(value: Any) -> int | None:
@@ -87,6 +94,75 @@ def _build_control_inner(
     if request_serial:
         inner["requestSerial"] = request_serial
     return inner
+
+
+def _build_verify_control_password_inner(
+    config: BydConfig,
+    vin: str,
+    command_pwd: str,
+    now_ms: int,
+) -> dict[str, Any]:
+    """Build inner payload for control password verification endpoint."""
+    return {
+        "commandPwd": command_pwd,
+        "deviceType": config.device.device_type,
+        "functionType": "remoteControl",
+        "imeiMD5": config.device.imei_md5,
+        "networkType": config.device.network_type,
+        "random": secrets.token_hex(16).upper(),
+        "timeStamp": str(now_ms),
+        "version": config.app_inner_version,
+        "vin": vin,
+    }
+
+
+async def verify_control_password(
+    config: BydConfig,
+    session: Session,
+    transport: SecureTransport,
+    vin: str,
+    command_pwd: str,
+) -> dict[str, Any]:
+    """Verify remote control password for a vehicle.
+
+    Calls ``/vehicle/vehicleswitch/verifyControlPassword`` and returns the
+    decrypted inner response payload.
+    """
+    now_ms = int(time.time() * 1000)
+    inner = _build_verify_control_password_inner(config, vin, command_pwd, now_ms)
+    outer, content_key = build_token_outer_envelope(config, session, inner, now_ms)
+
+    response = await transport.post_secure(VERIFY_CONTROL_PASSWORD_ENDPOINT, outer)
+    resp_code = str(response.get("code", ""))
+    if resp_code != "0":
+        if resp_code in SESSION_EXPIRED_CODES:
+            raise BydSessionExpiredError(
+                f"{VERIFY_CONTROL_PASSWORD_ENDPOINT} failed: code={resp_code} message={response.get('message', '')}",
+                code=resp_code,
+                endpoint=VERIFY_CONTROL_PASSWORD_ENDPOINT,
+            )
+        if resp_code in CONTROL_PASSWORD_ERROR_CODES:
+            raise BydControlPasswordError(
+                f"{VERIFY_CONTROL_PASSWORD_ENDPOINT} failed: code={resp_code} message={response.get('message', '')}",
+                code=resp_code,
+                endpoint=VERIFY_CONTROL_PASSWORD_ENDPOINT,
+            )
+        if resp_code in ENDPOINT_NOT_SUPPORTED_CODES:
+            raise BydEndpointNotSupportedError(
+                f"{VERIFY_CONTROL_PASSWORD_ENDPOINT} failed: code={resp_code} message={response.get('message', '')}",
+                code=resp_code,
+                endpoint=VERIFY_CONTROL_PASSWORD_ENDPOINT,
+            )
+        raise BydApiError(
+            f"{VERIFY_CONTROL_PASSWORD_ENDPOINT} failed: code={resp_code} message={response.get('message', '')}",
+            code=resp_code,
+            endpoint=VERIFY_CONTROL_PASSWORD_ENDPOINT,
+        )
+
+    encrypted_inner = response.get("respondData")
+    if not encrypted_inner:
+        return {}
+    return json.loads(aes_decrypt_utf8(encrypted_inner, content_key))
 
 
 def _is_remote_control_ready(data: dict[str, Any]) -> bool:
@@ -207,6 +283,18 @@ async def _fetch_control_endpoint(
             debug_recorder(debug_entry)
         if resp_code in SESSION_EXPIRED_CODES:
             raise BydSessionExpiredError(
+                f"{endpoint} failed: code={resp_code} message={response.get('message', '')}",
+                code=resp_code,
+                endpoint=endpoint,
+            )
+        if resp_code in CONTROL_PASSWORD_ERROR_CODES:
+            raise BydControlPasswordError(
+                f"{endpoint} failed: code={resp_code} message={response.get('message', '')}",
+                code=resp_code,
+                endpoint=endpoint,
+            )
+        if resp_code in ENDPOINT_NOT_SUPPORTED_CODES:
+            raise BydEndpointNotSupportedError(
                 f"{endpoint} failed: code={resp_code} message={response.get('message', '')}",
                 code=resp_code,
                 endpoint=endpoint,
@@ -352,7 +440,6 @@ async def _poll_remote_control_once(
 ) -> RemoteControlResult:
     """Single attempt: trigger + poll.  Raises on failure."""
     # Phase 1: Trigger request (with control params) — retry on 6024
-    last_rate_limit_exc: BydApiError | None = None
     for rate_attempt in range(1, rate_limit_retries + 1):
         try:
             result, serial = await _fetch_control_endpoint(
@@ -367,11 +454,9 @@ async def _poll_remote_control_once(
                 debug_recorder=debug_recorder,
                 phase="trigger",
             )
-            last_rate_limit_exc = None
             break
         except BydApiError as exc:
             if exc.code == "6024":
-                last_rate_limit_exc = exc
                 _logger.info(
                     "Remote control %s rate-limited (6024), retry %d/%d in %.1fs",
                     command.name,
