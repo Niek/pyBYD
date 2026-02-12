@@ -17,13 +17,16 @@ from pybyd._cache import VehicleDataCache
 from pybyd._crypto.aes import aes_decrypt_utf8
 from pybyd._transport import SecureTransport
 from pybyd.config import BydConfig
-from pybyd.exceptions import BydApiError
+from pybyd.exceptions import BydApiError, BydEndpointNotSupportedError
 from pybyd.models.charging import ChargingStatus
 from pybyd.session import Session
 
 _logger = logging.getLogger(__name__)
 
 _ENDPOINT = "/control/smartCharge/homePage"
+
+#: API error codes indicating the endpoint is not supported for this vehicle.
+_NOT_SUPPORTED_CODES: frozenset[str] = frozenset({"1001"})
 
 
 def _safe_int(value: Any) -> int | None:
@@ -79,10 +82,17 @@ async def fetch_charging_status(
     outer, content_key = build_token_outer_envelope(config, session, inner, now_ms)
 
     response = await transport.post_secure(_ENDPOINT, outer)
-    if str(response.get("code")) != "0":
+    resp_code = str(response.get("code", ""))
+    if resp_code != "0":
+        if resp_code in _NOT_SUPPORTED_CODES:
+            raise BydEndpointNotSupportedError(
+                f"{_ENDPOINT} not supported for VIN {vin} (code={resp_code})",
+                code=resp_code,
+                endpoint=_ENDPOINT,
+            )
         raise BydApiError(
-            f"{_ENDPOINT} failed: code={response.get('code')} message={response.get('message', '')}",
-            code=str(response.get("code", "")),
+            f"{_ENDPOINT} failed: code={resp_code} message={response.get('message', '')}",
+            code=resp_code,
             endpoint=_ENDPOINT,
         )
 

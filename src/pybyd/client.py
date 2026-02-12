@@ -11,7 +11,7 @@ import aiohttp
 
 from pybyd._api.charging import fetch_charging_status
 from pybyd._api.control import poll_remote_control
-from pybyd._api.energy import fetch_energy_consumption
+from pybyd._api.energy import energy_from_realtime_cache, fetch_energy_consumption
 from pybyd._api.gps import poll_gps_info
 from pybyd._api.hvac import fetch_hvac_status
 from pybyd._api.login import build_login_request, parse_login_response
@@ -23,6 +23,7 @@ from pybyd._crypto.hashing import md5_hex
 from pybyd._transport import SecureTransport
 from pybyd.config import BydConfig
 from pybyd.exceptions import BydApiError, BydAuthenticationError, BydError  # noqa: F401
+from pybyd.exceptions import BydEndpointNotSupportedError
 from pybyd.models.charging import ChargingStatus
 from pybyd.models.control import RemoteCommand, RemoteControlResult
 from pybyd.models.energy import EnergyConsumption
@@ -89,6 +90,7 @@ class BydClient:
         self._transport: SecureTransport | None = None
         self._session: Session | None = None
         self._cache = VehicleDataCache()
+        self._unsupported: dict[str, set[str]] = {}
         self._debug_recorder = debug_recorder
 
     async def __aenter__(self) -> BydClient:
@@ -358,6 +360,11 @@ class BydClient:
     async def get_energy_consumption(self, vin: str) -> EnergyConsumption:
         """Fetch energy consumption data for a vehicle.
 
+        If the dedicated energy endpoint is not supported (code 1001),
+        a best-effort ``EnergyConsumption`` is built from cached
+        realtime data instead.  The fallback is remembered so
+        subsequent calls skip the failing endpoint entirely.
+
         Parameters
         ----------
         vin : str
@@ -371,10 +378,13 @@ class BydClient:
         Raises
         ------
         BydApiError
-            If the API returns an error.
+            If the API returns an error other than not-supported.
         BydError
             If not logged in.
         """
+        if "energy" in self._unsupported.get(vin, set()):
+            return energy_from_realtime_cache(vin, self._cache)
+
         session = await self.ensure_session()
         transport = self._require_transport()
         try:
@@ -385,6 +395,13 @@ class BydClient:
                 vin,
                 cache=self._cache,
             )
+        except BydEndpointNotSupportedError:
+            _logger.info(
+                "Energy endpoint not supported for %s — using realtime fallback",
+                vin,
+            )
+            self._unsupported.setdefault(vin, set()).add("energy")
+            return energy_from_realtime_cache(vin, self._cache)
         except BydApiError as exc:
             if exc.code not in _SESSION_EXPIRED_CODES:
                 raise
@@ -787,10 +804,11 @@ class BydClient:
 
     # ── Read-only status endpoints ───────────────────────────
 
-    async def get_hvac_status(self, vin: str) -> HvacStatus:
+    async def get_hvac_status(self, vin: str) -> HvacStatus | None:
         """Fetch current HVAC / climate control status.
 
-        Uses ``/control/getStatusNow``.
+        Uses ``/control/getStatusNow``.  Returns ``None`` when the
+        endpoint is not supported for this vehicle.
 
         Parameters
         ----------
@@ -799,13 +817,20 @@ class BydClient:
 
         Returns
         -------
-        HvacStatus
-            Current climate control state.
+        HvacStatus or None
+            Current climate control state, or None if unsupported.
         """
+        if "hvac" in self._unsupported.get(vin, set()):
+            return None
+
         session = await self.ensure_session()
         transport = self._require_transport()
         try:
             return await fetch_hvac_status(self._config, session, transport, vin, cache=self._cache)
+        except BydEndpointNotSupportedError:
+            _logger.info("HVAC endpoint not supported for %s", vin)
+            self._unsupported.setdefault(vin, set()).add("hvac")
+            return None
         except BydApiError as exc:
             if exc.code not in _SESSION_EXPIRED_CODES:
                 raise
@@ -814,10 +839,11 @@ class BydClient:
             session = await self.ensure_session()
             return await fetch_hvac_status(self._config, session, transport, vin, cache=self._cache)
 
-    async def get_charging_status(self, vin: str) -> ChargingStatus:
+    async def get_charging_status(self, vin: str) -> ChargingStatus | None:
         """Fetch smart charging status (SOC, charge state, time-to-full).
 
-        Uses ``/control/smartCharge/homePage``.
+        Uses ``/control/smartCharge/homePage``.  Returns ``None`` when
+        the endpoint is not supported for this vehicle.
 
         Parameters
         ----------
@@ -826,13 +852,20 @@ class BydClient:
 
         Returns
         -------
-        ChargingStatus
-            Battery and charging state.
+        ChargingStatus or None
+            Battery and charging state, or None if unsupported.
         """
+        if "charging" in self._unsupported.get(vin, set()):
+            return None
+
         session = await self.ensure_session()
         transport = self._require_transport()
         try:
             return await fetch_charging_status(self._config, session, transport, vin, cache=self._cache)
+        except BydEndpointNotSupportedError:
+            _logger.info("Charging endpoint not supported for %s", vin)
+            self._unsupported.setdefault(vin, set()).add("charging")
+            return None
         except BydApiError as exc:
             if exc.code not in _SESSION_EXPIRED_CODES:
                 raise

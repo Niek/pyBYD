@@ -70,6 +70,16 @@ class BydRemoteControlError(BydApiError):
     """Remote control command failed (controlState=2)."""
 
 
+class BydEndpointNotSupportedError(BydApiError):
+    """Endpoint not supported for this vehicle/region (e.g. code 1001).
+
+    Raised when the API returns an error code indicating the requested
+    endpoint is not available for the user's vehicle model, region, or
+    firmware version.  Consumers should stop retrying the endpoint for
+    the affected VIN.
+    """
+
+
 class BydRateLimitError(BydApiError):
     """Rate limited — a previous command is still in progress (code 6024).
 

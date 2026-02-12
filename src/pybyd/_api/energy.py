@@ -17,7 +17,7 @@ from pybyd._cache import VehicleDataCache
 from pybyd._crypto.aes import aes_decrypt_utf8
 from pybyd._transport import SecureTransport
 from pybyd.config import BydConfig
-from pybyd.exceptions import BydApiError
+from pybyd.exceptions import BydApiError, BydEndpointNotSupportedError
 from pybyd.models.energy import EnergyConsumption
 from pybyd.session import Session
 
@@ -25,10 +25,13 @@ _logger = logging.getLogger(__name__)
 
 _ENDPOINT = "/vehicleInfo/vehicle/getEnergyConsumption"
 
+#: API error codes indicating the endpoint is not supported for this vehicle.
+_NOT_SUPPORTED_CODES: frozenset[str] = frozenset({"1001"})
+
 
 def _safe_float(value: Any) -> float | None:
     """Convert a value to float, returning None on failure."""
-    if value is None or value == "":
+    if value is None or value == "" or value == "--":
         return None
     try:
         result = float(value)
@@ -68,6 +71,30 @@ def _parse_energy_consumption(data: dict[str, Any]) -> EnergyConsumption:
     )
 
 
+def energy_from_realtime_cache(
+    vin: str,
+    cache: VehicleDataCache,
+) -> EnergyConsumption:
+    """Build a best-effort EnergyConsumption from cached realtime data.
+
+    The realtime endpoint includes ``totalEnergy`` which overlaps with the
+    dedicated energy endpoint.  When the energy endpoint is unsupported
+    (code 1001) we synthesise a partial result from whatever the realtime
+    cache already has.  Fields that only the energy endpoint provides
+    (``avgEnergyConsumption``, ``electricityConsumption``,
+    ``fuelConsumption``) will be ``None``.
+    """
+    rt = cache.get_realtime(vin) if cache is not None else {}
+    return EnergyConsumption(
+        vin=vin,
+        total_energy=_safe_float(rt.get("totalEnergy")),
+        avg_energy_consumption=None,
+        electricity_consumption=None,
+        fuel_consumption=None,
+        raw=rt,
+    )
+
+
 async def fetch_energy_consumption(
     config: BydConfig,
     session: Session,
@@ -103,10 +130,17 @@ async def fetch_energy_consumption(
     outer, content_key = build_token_outer_envelope(config, session, inner, now_ms)
 
     response = await transport.post_secure(_ENDPOINT, outer)
-    if str(response.get("code")) != "0":
+    resp_code = str(response.get("code", ""))
+    if resp_code != "0":
+        if resp_code in _NOT_SUPPORTED_CODES:
+            raise BydEndpointNotSupportedError(
+                f"{_ENDPOINT} not supported for VIN {vin} (code={resp_code})",
+                code=resp_code,
+                endpoint=_ENDPOINT,
+            )
         raise BydApiError(
-            f"{_ENDPOINT} failed: code={response.get('code')} message={response.get('message', '')}",
-            code=str(response.get("code", "")),
+            f"{_ENDPOINT} failed: code={resp_code} message={response.get('message', '')}",
+            code=resp_code,
             endpoint=_ENDPOINT,
         )
 
