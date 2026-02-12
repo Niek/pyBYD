@@ -38,6 +38,7 @@ _logger = logging.getLogger(__name__)
 
 CONTROL_PASSWORD_ERROR_CODES: frozenset[str] = frozenset({"5005", "5006"})
 ENDPOINT_NOT_SUPPORTED_CODES: frozenset[str] = frozenset({"1001"})
+VERIFY_CONTROL_PASSWORD_ENDPOINT = "/vehicle/vehicleswitch/verifyControlPassword"
 
 
 def _safe_int(value: Any) -> int | None:
@@ -93,6 +94,75 @@ def _build_control_inner(
     if request_serial:
         inner["requestSerial"] = request_serial
     return inner
+
+
+def _build_verify_control_password_inner(
+    config: BydConfig,
+    vin: str,
+    command_pwd: str,
+    now_ms: int,
+) -> dict[str, Any]:
+    """Build inner payload for control password verification endpoint."""
+    return {
+        "commandPwd": command_pwd,
+        "deviceType": config.device.device_type,
+        "functionType": "remoteControl",
+        "imeiMD5": config.device.imei_md5,
+        "networkType": config.device.network_type,
+        "random": secrets.token_hex(16).upper(),
+        "timeStamp": str(now_ms),
+        "version": config.app_inner_version,
+        "vin": vin,
+    }
+
+
+async def verify_control_password(
+    config: BydConfig,
+    session: Session,
+    transport: SecureTransport,
+    vin: str,
+    command_pwd: str,
+) -> dict[str, Any]:
+    """Verify remote control password for a vehicle.
+
+    Calls ``/vehicle/vehicleswitch/verifyControlPassword`` and returns the
+    decrypted inner response payload.
+    """
+    now_ms = int(time.time() * 1000)
+    inner = _build_verify_control_password_inner(config, vin, command_pwd, now_ms)
+    outer, content_key = build_token_outer_envelope(config, session, inner, now_ms)
+
+    response = await transport.post_secure(VERIFY_CONTROL_PASSWORD_ENDPOINT, outer)
+    resp_code = str(response.get("code", ""))
+    if resp_code != "0":
+        if resp_code in SESSION_EXPIRED_CODES:
+            raise BydSessionExpiredError(
+                f"{VERIFY_CONTROL_PASSWORD_ENDPOINT} failed: code={resp_code} message={response.get('message', '')}",
+                code=resp_code,
+                endpoint=VERIFY_CONTROL_PASSWORD_ENDPOINT,
+            )
+        if resp_code in CONTROL_PASSWORD_ERROR_CODES:
+            raise BydControlPasswordError(
+                f"{VERIFY_CONTROL_PASSWORD_ENDPOINT} failed: code={resp_code} message={response.get('message', '')}",
+                code=resp_code,
+                endpoint=VERIFY_CONTROL_PASSWORD_ENDPOINT,
+            )
+        if resp_code in ENDPOINT_NOT_SUPPORTED_CODES:
+            raise BydEndpointNotSupportedError(
+                f"{VERIFY_CONTROL_PASSWORD_ENDPOINT} failed: code={resp_code} message={response.get('message', '')}",
+                code=resp_code,
+                endpoint=VERIFY_CONTROL_PASSWORD_ENDPOINT,
+            )
+        raise BydApiError(
+            f"{VERIFY_CONTROL_PASSWORD_ENDPOINT} failed: code={resp_code} message={response.get('message', '')}",
+            code=resp_code,
+            endpoint=VERIFY_CONTROL_PASSWORD_ENDPOINT,
+        )
+
+    encrypted_inner = response.get("respondData")
+    if not encrypted_inner:
+        return {}
+    return json.loads(aes_decrypt_utf8(encrypted_inner, content_key))
 
 
 def _is_remote_control_ready(data: dict[str, Any]) -> bool:
