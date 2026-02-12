@@ -14,11 +14,17 @@ from typing import Any
 
 from pybyd._api._envelope import build_token_outer_envelope
 from pybyd._cache import VehicleDataCache
+from pybyd._constants import SESSION_EXPIRED_CODES
 from pybyd._crypto.aes import aes_decrypt_utf8
 from pybyd._transport import SecureTransport
 from pybyd.config import BydConfig
-from pybyd.exceptions import BydApiError, BydEndpointNotSupportedError
+from pybyd.exceptions import (
+    BydApiError,
+    BydEndpointNotSupportedError,
+    BydSessionExpiredError,
+)
 from pybyd.models.hvac import HvacStatus
+from pybyd.models.realtime import SeatHeatVentState
 from pybyd.session import Session
 
 _logger = logging.getLogger(__name__)
@@ -55,6 +61,17 @@ def _safe_float(value: Any) -> float | None:
         return None
 
 
+def _to_enum(enum_cls: type, value: Any, default: Any = None) -> Any:
+    """Safely coerce a value into an IntEnum, returning default on failure."""
+    v = _safe_int(value)
+    if v is None:
+        return default
+    try:
+        return enum_cls(v)
+    except ValueError:
+        return v  # Return raw int if not a known enum member
+
+
 def _build_hvac_inner(config: BydConfig, vin: str, now_ms: int) -> dict[str, str]:
     return {
         "deviceType": config.device.device_type,
@@ -89,15 +106,15 @@ def _parse_hvac_status(data: dict[str, Any]) -> HvacStatus:
         front_defrost_status=_safe_int(status.get("frontDefrostStatus")),
         electric_defrost_status=_safe_int(status.get("electricDefrostStatus")),
         wiper_heat_status=_safe_int(status.get("wiperHeatStatus")),
-        main_seat_heat_state=_safe_int(status.get("mainSeatHeatState")),
-        main_seat_ventilation_state=_safe_int(status.get("mainSeatVentilationState")),
-        copilot_seat_heat_state=_safe_int(status.get("copilotSeatHeatState")),
-        copilot_seat_ventilation_state=_safe_int(status.get("copilotSeatVentilationState")),
-        steering_wheel_heat_state=_safe_int(status.get("steeringWheelHeatState")),
-        lr_seat_heat_state=_safe_int(status.get("lrSeatHeatState")),
-        lr_seat_ventilation_state=_safe_int(status.get("lrSeatVentilationState")),
-        rr_seat_heat_state=_safe_int(status.get("rrSeatHeatState")),
-        rr_seat_ventilation_state=_safe_int(status.get("rrSeatVentilationState")),
+        main_seat_heat_state=_to_enum(SeatHeatVentState, status.get("mainSeatHeatState")),
+        main_seat_ventilation_state=_to_enum(SeatHeatVentState, status.get("mainSeatVentilationState")),
+        copilot_seat_heat_state=_to_enum(SeatHeatVentState, status.get("copilotSeatHeatState")),
+        copilot_seat_ventilation_state=_to_enum(SeatHeatVentState, status.get("copilotSeatVentilationState")),
+        steering_wheel_heat_state=_to_enum(SeatHeatVentState, status.get("steeringWheelHeatState")),
+        lr_seat_heat_state=_to_enum(SeatHeatVentState, status.get("lrSeatHeatState")),
+        lr_seat_ventilation_state=_to_enum(SeatHeatVentState, status.get("lrSeatVentilationState")),
+        rr_seat_heat_state=_to_enum(SeatHeatVentState, status.get("rrSeatHeatState")),
+        rr_seat_ventilation_state=_to_enum(SeatHeatVentState, status.get("rrSeatVentilationState")),
         rapid_increase_temp_state=_safe_int(status.get("rapidIncreaseTempState")),
         rapid_decrease_temp_state=_safe_int(status.get("rapidDecreaseTempState")),
         refrigerator_state=_safe_int(status.get("refrigeratorState")),
@@ -123,6 +140,12 @@ async def fetch_hvac_status(
     response = await transport.post_secure(_ENDPOINT, outer)
     resp_code = str(response.get("code", ""))
     if resp_code != "0":
+        if resp_code in SESSION_EXPIRED_CODES:
+            raise BydSessionExpiredError(
+                f"{_ENDPOINT} failed: code={resp_code} message={response.get('message', '')}",
+                code=resp_code,
+                endpoint=_ENDPOINT,
+            )
         if resp_code in _NOT_SUPPORTED_CODES:
             raise BydEndpointNotSupportedError(
                 f"{_ENDPOINT} not supported for VIN {vin} (code={resp_code})",

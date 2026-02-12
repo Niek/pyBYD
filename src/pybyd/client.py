@@ -18,6 +18,7 @@ from pybyd._api.login import build_login_request, parse_login_response
 from pybyd._api.realtime import poll_vehicle_realtime
 from pybyd._api.vehicles import build_list_request, parse_vehicle_list
 from pybyd._cache import VehicleDataCache
+from pybyd._constants import SESSION_EXPIRED_CODES
 from pybyd._crypto.bangcle import BangcleCodec
 from pybyd._crypto.hashing import md5_hex
 from pybyd._transport import SecureTransport
@@ -35,11 +36,6 @@ from pybyd.models.vehicle import Vehicle
 from pybyd.session import Session
 
 _logger = logging.getLogger(__name__)
-
-#: API error codes that indicate the session token is no longer valid.
-#: When one of these is encountered the client will transparently
-#: re-authenticate and retry the request once.
-_SESSION_EXPIRED_CODES: frozenset[str] = frozenset({"1005", "1010"})
 
 
 def _validate_climate_temperature(value: int, name: str) -> int:
@@ -209,7 +205,7 @@ class BydClient:
             response = await transport.post_secure("/app/account/getAllListByUserId", outer)
             vehicles = parse_vehicle_list(response, content_key)
         except BydApiError as exc:
-            if exc.code not in _SESSION_EXPIRED_CODES:
+            if exc.code not in SESSION_EXPIRED_CODES:
                 raise
             _logger.debug("Session rejected (code %s) — re-authenticating", exc.code)
             self.invalidate_session()
@@ -274,7 +270,7 @@ class BydClient:
                 stale_after=stale_after,
             )
         except BydApiError as exc:
-            if exc.code not in _SESSION_EXPIRED_CODES:
+            if exc.code not in SESSION_EXPIRED_CODES:
                 raise
             _logger.debug("Session rejected (code %s) — re-authenticating", exc.code)
             self.invalidate_session()
@@ -341,7 +337,7 @@ class BydClient:
                 stale_after=stale_after,
             )
         except BydApiError as exc:
-            if exc.code not in _SESSION_EXPIRED_CODES:
+            if exc.code not in SESSION_EXPIRED_CODES:
                 raise
             _logger.debug("Session rejected (code %s) — re-authenticating", exc.code)
             self.invalidate_session()
@@ -403,7 +399,7 @@ class BydClient:
             self._unsupported.setdefault(vin, set()).add("energy")
             return energy_from_realtime_cache(vin, self._cache)
         except BydApiError as exc:
-            if exc.code not in _SESSION_EXPIRED_CODES:
+            if exc.code not in SESSION_EXPIRED_CODES:
                 raise
             _logger.debug("Session rejected (code %s) — re-authenticating", exc.code)
             self.invalidate_session()
@@ -517,7 +513,7 @@ class BydClient:
                 debug_recorder=self._debug_recorder,
             )
         except BydApiError as exc:
-            if exc.code not in _SESSION_EXPIRED_CODES:
+            if exc.code not in SESSION_EXPIRED_CODES:
                 raise
             _logger.debug("Session rejected (code %s) — re-authenticating", exc.code)
             self.invalidate_session()
@@ -832,7 +828,7 @@ class BydClient:
             self._unsupported.setdefault(vin, set()).add("hvac")
             return None
         except BydApiError as exc:
-            if exc.code not in _SESSION_EXPIRED_CODES:
+            if exc.code not in SESSION_EXPIRED_CODES:
                 raise
             _logger.debug("Session rejected (code %s) — re-authenticating", exc.code)
             self.invalidate_session()

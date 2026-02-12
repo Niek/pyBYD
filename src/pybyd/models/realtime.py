@@ -1,7 +1,6 @@
 """Vehicle realtime data model.
 
-Enum values and field meanings are documented in PROTOCOL.md under
-"Vehicle Realtime Data".
+Enum values and field meanings are documented in API_FIELD_MAPPING.md.
 """
 
 from __future__ import annotations
@@ -20,7 +19,11 @@ class OnlineState(enum.IntEnum):
 
 
 class ConnectState(enum.IntEnum):
-    """T-Box connection state."""
+    """T-Box connection state.
+
+    Note: observed as ``-1`` even while the vehicle is online and driving.
+    The exact semantics of this field vs ``OnlineState`` are unclear.
+    """
 
     UNKNOWN = -1
     DISCONNECTED = 0
@@ -28,30 +31,36 @@ class ConnectState(enum.IntEnum):
 
 
 class VehicleState(enum.IntEnum):
-    """Vehicle power state."""
+    """Vehicle power state.
 
-    OFF = 0
-    ON = 1
+    Note: observed as ``0`` even while the vehicle is actively driving,
+    so the semantics are unclear. Do not rely on this for on/off detection.
+    """
+
+    STANDBY = 0
+    ACTIVE = 1
 
 
 class ChargingState(enum.IntEnum):
     """Charging state indicator.
 
-    -1 = unknown, 0 = not charging, positive values indicate
-    various charging/connected states (e.g. 15 = not charging per
-    smartCharge/homePage observations).
+    Used for both ``charging_state`` and ``charge_state`` fields.
+    ``-1`` indicates the charge gun is disconnected.
+    ``0`` means connected but not actively charging.
+    ``15`` means the charge gun is plugged in but not charging.
     """
 
-    UNKNOWN = -1
+    DISCONNECTED = -1
     NOT_CHARGING = 0
+    GUN_CONNECTED = 15
 
 
 class TirePressureUnit(enum.IntEnum):
     """Unit used for tire pressure readings."""
 
-    KPA = 1
+    BAR = 1
     PSI = 2
-    BAR = 3
+    KPA = 3
 
 
 class DoorOpenState(enum.IntEnum):
@@ -71,8 +80,44 @@ class LockState(enum.IntEnum):
 class WindowState(enum.IntEnum):
     """Window open/closed state."""
 
-    CLOSED = 0
-    OPEN = 1
+    OPEN = 0
+    CLOSED = 1
+
+
+class PowerGear(enum.IntEnum):
+    """Transmission gear position.
+
+    Known values from observations. Unknown values fall through
+    as raw ``int`` via ``_to_enum``.
+    """
+
+    PARKED = 1
+    DRIVE = 3
+
+
+class SeatHeatVentState(enum.IntEnum):
+    """Seat heating / ventilation / steering wheel heat level.
+
+    Observed from live API data:
+    - 0 = off
+    - 2 = low
+    - 3 = high
+
+    Value ``1`` appears when the feature is available but inactive
+    (e.g. front seats while driving); it is not a defined member
+    and will be returned as a raw ``int`` by the parser.
+    """
+
+    OFF = 0
+    LOW = 2
+    HIGH = 3
+
+
+class AirCirculationMode(enum.IntEnum):
+    """Air circulation mode."""
+
+    EXTERNAL = 0
+    INTERNAL = 1
 
 
 @dataclasses.dataclass(frozen=True)
@@ -92,7 +137,7 @@ class VehicleRealtimeData:
 
     # --- Battery & range ---
     elec_percent: float | None
-    """Battery percentage (0-100)."""
+    """Battery state of charge (0–100 %)."""  # noqa: RUF002
     power_battery: float | None
     """Alternative battery percentage field."""
     endurance_mileage: float | None
@@ -113,46 +158,47 @@ class VehicleRealtimeData:
     # --- Driving ---
     speed: float | None
     """Current speed (km/h)."""
-    power_gear: int | None
-    """Current gear position."""
+    power_gear: PowerGear | None
+    """Gear position (1=parked, 3=drive)."""
 
     # --- Climate ---
     temp_in_car: float | None
-    """Interior temperature (°C)."""
+    """Interior temperature (°C). ``-129.0`` means unavailable / car offline."""
     main_setting_temp: int | None
-    """Driver-side set temperature (integer)."""
+    """Driver-side set temperature for cabin A/C (integer)."""
     main_setting_temp_new: float | None
     """Driver-side set temperature (precise, °C)."""
-    air_run_state: int | None
-    """A/C running state (0=off)."""
+    air_run_state: AirCirculationMode | None
+    """Air circulation mode (0=external, 1=internal recirculation)."""
 
     # --- Seat heating/ventilation ---
-    # Status scale: 0=N/A, 1=off, 2=level 1, 3=level 2, 4=level 3
+    # Observed status scale: 0=off, 2=low, 3=high
+    # Value 1 = feature available but inactive (not a SeatHeatVentState member)
     # (Note: command scale is different: 0=off, 1-3=levels)
-    main_seat_heat_state: int | None
-    """Driver seat heating level (0=N/A, 1=off, 2–4=level 1–3)."""
-    main_seat_ventilation_state: int | None
-    """Driver seat ventilation level (0=N/A, 1=off, 2–4=level 1–3)."""
-    copilot_seat_heat_state: int | None
-    """Passenger seat heating level (0=N/A, 1=off, 2–4=level 1–3)."""
-    copilot_seat_ventilation_state: int | None
-    """Passenger seat ventilation level (0=N/A, 1=off, 2–4=level 1–3)."""
-    steering_wheel_heat_state: int | None
-    """Steering wheel heating state (0=N/A, 1=off, 2–4=level 1–3)."""
-    lr_seat_heat_state: int | None
-    """Left rear seat heating level (0=N/A, 1=off, 2–4=level 1–3)."""
-    lr_seat_ventilation_state: int | None
-    """Left rear seat ventilation level (0=N/A, 1=off, 2–4=level 1–3)."""
-    rr_seat_heat_state: int | None
-    """Right rear seat heating level (0=N/A, 1=off, 2–4=level 1–3)."""
-    rr_seat_ventilation_state: int | None
-    """Right rear seat ventilation level (0=N/A, 1=off, 2–4=level 1–3)."""
+    main_seat_heat_state: SeatHeatVentState | int | None
+    """Driver seat heating level (0=off, 2=low, 3=high)."""
+    main_seat_ventilation_state: SeatHeatVentState | int | None
+    """Driver seat ventilation level (0=off, 2=low, 3=high)."""
+    copilot_seat_heat_state: SeatHeatVentState | int | None
+    """Passenger seat heating level (0=off, 2=low, 3=high)."""
+    copilot_seat_ventilation_state: SeatHeatVentState | int | None
+    """Passenger seat ventilation level (0=off, 2=low, 3=high)."""
+    steering_wheel_heat_state: SeatHeatVentState | int | None
+    """Steering wheel heating state (0=off, 2=low, 3=high)."""
+    lr_seat_heat_state: SeatHeatVentState | int | None
+    """Left rear seat heating level (0=off, 2=low, 3=high)."""
+    lr_seat_ventilation_state: SeatHeatVentState | int | None
+    """Left rear seat ventilation level (0=off, 2=low, 3=high)."""
+    rr_seat_heat_state: SeatHeatVentState | int | None
+    """Right rear seat heating level (0=off, 2=low, 3=high)."""
+    rr_seat_ventilation_state: SeatHeatVentState | int | None
+    """Right rear seat ventilation level (0=off, 2=low, 3=high)."""
 
     # --- Charging ---
-    charging_state: int
-    """Charging state (-1=unknown, 0=not charging, >0=charging states)."""
-    charge_state: int | None
-    """Alternative charge state field."""
+    charging_state: ChargingState | int
+    """Charging state (-1=disconnected, 0=not charging, 15=gun connected)."""
+    charge_state: ChargingState | int | None
+    """Charge gun state (-1=disconnected, 15=gun plugged in, not charging)."""
     wait_status: int | None
     """Charge wait status."""
     full_hour: int | None
@@ -205,7 +251,7 @@ class VehicleRealtimeData:
     left_rear_tire_status: int | None
     right_rear_tire_status: int | None
     tire_press_unit: TirePressureUnit | None
-    """1=kPa, 2=psi, 3=bar."""
+    """1=bar, 2=psi, 3=kPa."""
     tirepressure_system: int | None
     """Tire pressure monitoring system state."""
     rapid_tire_leak: int | None
@@ -277,8 +323,21 @@ class VehicleRealtimeData:
 
     @property
     def is_charging(self) -> bool:
-        """Whether the vehicle is currently charging."""
-        return self.charging_state > 0
+        """Whether the vehicle is currently charging.
+
+        Returns ``True`` when ``charging_state`` is positive and **not**
+        equal to ``GUN_CONNECTED`` (15), which indicates the plug is
+        inserted but charging is not active.
+        """
+        return (
+            self.charging_state > 0
+            and self.charging_state != ChargingState.GUN_CONNECTED
+        )
+
+    @property
+    def interior_temp_available(self) -> bool:
+        """Whether interior temperature reading is valid (not sentinel)."""
+        return self.temp_in_car is not None and self.temp_in_car != -129.0
 
     @property
     def is_locked(self) -> bool:

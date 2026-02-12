@@ -16,15 +16,20 @@ from typing import Any
 
 from pybyd._api._envelope import build_token_outer_envelope
 from pybyd._cache import VehicleDataCache
+from pybyd._constants import SESSION_EXPIRED_CODES
 from pybyd._crypto.aes import aes_decrypt_utf8
 from pybyd._transport import SecureTransport
 from pybyd.config import BydConfig
-from pybyd.exceptions import BydApiError
+from pybyd.exceptions import BydApiError, BydSessionExpiredError
 from pybyd.models.realtime import (
+    AirCirculationMode,
+    ChargingState,
     ConnectState,
     DoorOpenState,
     LockState,
     OnlineState,
+    PowerGear,
+    SeatHeatVentState,
     TirePressureUnit,
     VehicleRealtimeData,
     VehicleState,
@@ -124,7 +129,7 @@ def _safe_str(value: Any) -> str | None:
 def _parse_vehicle_info(data: dict[str, Any]) -> VehicleRealtimeData:
     """Parse raw vehicle info dict into a typed dataclass.
 
-    Uses enum coercion for known integer-enum fields per PROTOCOL.md.
+    Uses enum coercion for known integer-enum fields per API_FIELD_MAPPING.md.
     Energy consumption fields (totalEnergy, nearestEnergyConsumption,
     recent50kmEnergy) are kept as strings since the API returns ``"--"``
     when values are unavailable.
@@ -133,7 +138,7 @@ def _parse_vehicle_info(data: dict[str, Any]) -> VehicleRealtimeData:
         # Connection & state
         online_state=_to_enum(OnlineState, data.get("onlineState"), OnlineState.UNKNOWN),
         connect_state=_to_enum(ConnectState, data.get("connectState"), ConnectState.UNKNOWN),
-        vehicle_state=_to_enum(VehicleState, data.get("vehicleState"), VehicleState.OFF),
+        vehicle_state=_to_enum(VehicleState, data.get("vehicleState"), VehicleState.STANDBY),
         request_serial=data.get("requestSerial"),
         # Battery & range
         elec_percent=_safe_float(data.get("elecPercent")),
@@ -147,25 +152,25 @@ def _parse_vehicle_info(data: dict[str, Any]) -> VehicleRealtimeData:
         total_mileage_v2_unit=_safe_str(data.get("totalMileageV2Unit")),
         # Driving
         speed=_safe_float(data.get("speed")),
-        power_gear=_safe_int(data.get("powerGear")),
+        power_gear=_to_enum(PowerGear, data.get("powerGear")),
         # Climate
         temp_in_car=_safe_float(data.get("tempInCar")),
         main_setting_temp=_safe_int(data.get("mainSettingTemp")),
         main_setting_temp_new=_safe_float(data.get("mainSettingTempNew")),
-        air_run_state=_safe_int(data.get("airRunState")),
+        air_run_state=_to_enum(AirCirculationMode, data.get("airRunState")),
         # Seat heating/ventilation
-        main_seat_heat_state=_safe_int(data.get("mainSeatHeatState")),
-        main_seat_ventilation_state=_safe_int(data.get("mainSeatVentilationState")),
-        copilot_seat_heat_state=_safe_int(data.get("copilotSeatHeatState")),
-        copilot_seat_ventilation_state=_safe_int(data.get("copilotSeatVentilationState")),
-        steering_wheel_heat_state=_safe_int(data.get("steeringWheelHeatState")),
-        lr_seat_heat_state=_safe_int(data.get("lrSeatHeatState")),
-        lr_seat_ventilation_state=_safe_int(data.get("lrSeatVentilationState")),
-        rr_seat_heat_state=_safe_int(data.get("rrSeatHeatState")),
-        rr_seat_ventilation_state=_safe_int(data.get("rrSeatVentilationState")),
+        main_seat_heat_state=_to_enum(SeatHeatVentState, data.get("mainSeatHeatState")),
+        main_seat_ventilation_state=_to_enum(SeatHeatVentState, data.get("mainSeatVentilationState")),
+        copilot_seat_heat_state=_to_enum(SeatHeatVentState, data.get("copilotSeatHeatState")),
+        copilot_seat_ventilation_state=_to_enum(SeatHeatVentState, data.get("copilotSeatVentilationState")),
+        steering_wheel_heat_state=_to_enum(SeatHeatVentState, data.get("steeringWheelHeatState")),
+        lr_seat_heat_state=_to_enum(SeatHeatVentState, data.get("lrSeatHeatState")),
+        lr_seat_ventilation_state=_to_enum(SeatHeatVentState, data.get("lrSeatVentilationState")),
+        rr_seat_heat_state=_to_enum(SeatHeatVentState, data.get("rrSeatHeatState")),
+        rr_seat_ventilation_state=_to_enum(SeatHeatVentState, data.get("rrSeatVentilationState")),
         # Charging
-        charging_state=_safe_int(data.get("chargingState")) or 0,
-        charge_state=_safe_int(data.get("chargeState")),
+        charging_state=_to_enum(ChargingState, data.get("chargingState"), ChargingState.DISCONNECTED),
+        charge_state=_to_enum(ChargingState, data.get("chargeState")),
         wait_status=_safe_int(data.get("waitStatus")),
         full_hour=_safe_int(data.get("fullHour")),
         full_minute=_safe_int(data.get("fullMinute")),
@@ -255,10 +260,17 @@ async def _fetch_realtime_endpoint(
     outer, content_key = build_token_outer_envelope(config, session, inner, now_ms)
 
     response = await transport.post_secure(endpoint, outer)
-    if str(response.get("code")) != "0":
+    resp_code = str(response.get("code", ""))
+    if resp_code != "0":
+        if resp_code in SESSION_EXPIRED_CODES:
+            raise BydSessionExpiredError(
+                f"{endpoint} failed: code={resp_code} message={response.get('message', '')}",
+                code=resp_code,
+                endpoint=endpoint,
+            )
         raise BydApiError(
-            f"{endpoint} failed: code={response.get('code')} message={response.get('message', '')}",
-            code=str(response.get("code", "")),
+            f"{endpoint} failed: code={resp_code} message={response.get('message', '')}",
+            code=resp_code,
             endpoint=endpoint,
         )
 
@@ -367,6 +379,8 @@ async def poll_vehicle_realtime(
             )
             if isinstance(latest, dict) and _is_realtime_data_ready(latest):
                 break
+        except BydSessionExpiredError:
+            raise
         except BydApiError:
             _logger.debug("Realtime poll attempt=%d failed", attempt, exc_info=True)
 

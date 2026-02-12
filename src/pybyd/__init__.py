@@ -19,7 +19,9 @@ from pybyd.exceptions import (
     BydTransportError,
 )
 from pybyd.models import (
+    AirCirculationMode,
     AuthToken,
+    ChargingState,
     ChargingStatus,
     ConnectState,
     ControlState,
@@ -29,8 +31,10 @@ from pybyd.models import (
     HvacStatus,
     LockState,
     OnlineState,
+    PowerGear,
     RemoteCommand,
     RemoteControlResult,
+    SeatHeatVentState,
     TirePressureUnit,
     Vehicle,
     VehicleRealtimeData,
@@ -40,6 +44,7 @@ from pybyd.models import (
 
 __all__ = [
     "__version__",
+    "AirCirculationMode",
     "AuthToken",
     "BangcleError",
     "BydApiError",
@@ -54,6 +59,7 @@ __all__ = [
     "BydRemoteControlError",
     "BydSessionExpiredError",
     "BydTransportError",
+    "ChargingState",
     "ChargingStatus",
     "ConnectState",
     "ControlState",
@@ -64,8 +70,10 @@ __all__ = [
     "HvacStatus",
     "LockState",
     "OnlineState",
+    "PowerGear",
     "RemoteCommand",
     "RemoteControlResult",
+    "SeatHeatVentState",
     "TirePressureUnit",
     "Vehicle",
     "VehicleRealtimeData",

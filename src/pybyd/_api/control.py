@@ -18,10 +18,16 @@ import time
 from typing import Any, Callable
 
 from pybyd._api._envelope import build_token_outer_envelope
+from pybyd._constants import SESSION_EXPIRED_CODES
 from pybyd._crypto.aes import aes_decrypt_utf8
 from pybyd._transport import SecureTransport
 from pybyd.config import BydConfig
-from pybyd.exceptions import BydApiError, BydRateLimitError, BydRemoteControlError
+from pybyd.exceptions import (
+    BydApiError,
+    BydRateLimitError,
+    BydRemoteControlError,
+    BydSessionExpiredError,
+)
 from pybyd.models.control import ControlState, RemoteCommand, RemoteControlResult
 from pybyd.session import Session
 
@@ -190,7 +196,8 @@ async def _fetch_control_endpoint(
         "encrypted_inner": response.get("respondData"),
     }
 
-    if str(response.get("code")) != "0":
+    resp_code = str(response.get("code", ""))
+    if resp_code != "0":
         debug_entry["error"] = {
             "stage": "api",
             "code": response.get("code"),
@@ -198,9 +205,15 @@ async def _fetch_control_endpoint(
         }
         if debug_recorder is not None:
             debug_recorder(debug_entry)
+        if resp_code in SESSION_EXPIRED_CODES:
+            raise BydSessionExpiredError(
+                f"{endpoint} failed: code={resp_code} message={response.get('message', '')}",
+                code=resp_code,
+                endpoint=endpoint,
+            )
         raise BydApiError(
-            f"{endpoint} failed: code={response.get('code')} message={response.get('message', '')}",
-            code=str(response.get("code", "")),
+            f"{endpoint} failed: code={resp_code} message={response.get('message', '')}",
+            code=resp_code,
             endpoint=endpoint,
         )
 
@@ -426,6 +439,8 @@ async def _poll_remote_control_once(
             )
             if isinstance(latest, dict) and _is_remote_control_ready(latest):
                 break
+        except BydSessionExpiredError:
+            raise
         except BydApiError:
             _logger.debug(
                 "Remote control %s poll attempt=%d failed",

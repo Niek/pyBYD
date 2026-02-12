@@ -18,10 +18,11 @@ from typing import Any
 
 from pybyd._api._envelope import build_token_outer_envelope
 from pybyd._cache import VehicleDataCache
+from pybyd._constants import SESSION_EXPIRED_CODES
 from pybyd._crypto.aes import aes_decrypt_utf8
 from pybyd._transport import SecureTransport
 from pybyd.config import BydConfig
-from pybyd.exceptions import BydApiError
+from pybyd.exceptions import BydApiError, BydSessionExpiredError
 from pybyd.models.gps import GpsInfo
 from pybyd.session import Session
 
@@ -124,10 +125,17 @@ async def _fetch_gps_endpoint(
     outer, content_key = build_token_outer_envelope(config, session, inner, now_ms)
 
     response = await transport.post_secure(endpoint, outer)
-    if str(response.get("code")) != "0":
+    resp_code = str(response.get("code", ""))
+    if resp_code != "0":
+        if resp_code in SESSION_EXPIRED_CODES:
+            raise BydSessionExpiredError(
+                f"{endpoint} failed: code={resp_code} message={response.get('message', '')}",
+                code=resp_code,
+                endpoint=endpoint,
+            )
         raise BydApiError(
-            f"{endpoint} failed: code={response.get('code')} message={response.get('message', '')}",
-            code=str(response.get("code", "")),
+            f"{endpoint} failed: code={resp_code} message={response.get('message', '')}",
+            code=resp_code,
             endpoint=endpoint,
         )
 
@@ -242,6 +250,8 @@ async def poll_gps_info(
             )
             if isinstance(latest, dict) and _is_gps_info_ready(latest):
                 break
+        except BydSessionExpiredError:
+            raise
         except BydApiError:
             _logger.debug("GPS poll attempt=%d failed", attempt, exc_info=True)
 

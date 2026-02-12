@@ -23,7 +23,7 @@ class Vehicle:
     """A vehicle associated with the user's account.
 
     Fields are mapped from the ``/app/account/getAllListByUserId``
-    response documented in PROTOCOL.md.
+    response documented in API_FIELD_MAPPING.md.
     """
 
     vin: str

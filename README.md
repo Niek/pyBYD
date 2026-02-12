@@ -12,7 +12,7 @@ definitions found in [TA2k/ioBroker.byd](https://github.com/TA2k/ioBroker.byd).
 
 ## PLEASE READ FIRST!
 
-We are still working out the kinks, especially mapping states and setting up parsing. 
+We are still working out the kinks, especially mapping states and setting up parsing. See [API_MAPPING.md](https://github.com/jkaberg/pyBYD/blob/main/API_MAPPING.md) for the current state.
 
 Any help around this is grately appreciated, use the [test client](https://github.com/jkaberg/pyBYD#dump-all-data) to fetch the car values and send an PR. 
 

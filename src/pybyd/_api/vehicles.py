@@ -11,8 +11,9 @@ from typing import Any
 
 from pybyd._api._envelope import build_token_outer_envelope
 from pybyd._crypto.aes import aes_decrypt_utf8
+from pybyd._constants import SESSION_EXPIRED_CODES
 from pybyd.config import BydConfig
-from pybyd.exceptions import BydApiError
+from pybyd.exceptions import BydApiError, BydSessionExpiredError
 from pybyd.models.vehicle import EmpowerRange, Vehicle
 from pybyd.session import Session
 
@@ -118,10 +119,17 @@ def parse_vehicle_list(
     BydApiError
         If the API returned a non-zero code.
     """
-    if str(outer_response.get("code")) != "0":
+    resp_code = str(outer_response.get("code", ""))
+    if resp_code != "0":
+        if resp_code in SESSION_EXPIRED_CODES:
+            raise BydSessionExpiredError(
+                f"Vehicle list failed: code={resp_code} message={outer_response.get('message', '')}",
+                code=resp_code,
+                endpoint="/app/account/getAllListByUserId",
+            )
         raise BydApiError(
-            f"Vehicle list failed: code={outer_response.get('code')} message={outer_response.get('message', '')}",
-            code=str(outer_response.get("code", "")),
+            f"Vehicle list failed: code={resp_code} message={outer_response.get('message', '')}",
+            code=resp_code,
             endpoint="/app/account/getAllListByUserId",
         )
 

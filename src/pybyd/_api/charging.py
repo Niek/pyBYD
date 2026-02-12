@@ -14,10 +14,15 @@ from typing import Any
 
 from pybyd._api._envelope import build_token_outer_envelope
 from pybyd._cache import VehicleDataCache
+from pybyd._constants import SESSION_EXPIRED_CODES
 from pybyd._crypto.aes import aes_decrypt_utf8
 from pybyd._transport import SecureTransport
 from pybyd.config import BydConfig
-from pybyd.exceptions import BydApiError, BydEndpointNotSupportedError
+from pybyd.exceptions import (
+    BydApiError,
+    BydEndpointNotSupportedError,
+    BydSessionExpiredError,
+)
 from pybyd.models.charging import ChargingStatus
 from pybyd.session import Session
 
@@ -84,6 +89,12 @@ async def fetch_charging_status(
     response = await transport.post_secure(_ENDPOINT, outer)
     resp_code = str(response.get("code", ""))
     if resp_code != "0":
+        if resp_code in SESSION_EXPIRED_CODES:
+            raise BydSessionExpiredError(
+                f"{_ENDPOINT} failed: code={resp_code} message={response.get('message', '')}",
+                code=resp_code,
+                endpoint=_ENDPOINT,
+            )
         if resp_code in _NOT_SUPPORTED_CODES:
             raise BydEndpointNotSupportedError(
                 f"{_ENDPOINT} not supported for VIN {vin} (code={resp_code})",
