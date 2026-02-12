@@ -73,15 +73,15 @@ class DoorOpenState(enum.IntEnum):
 class LockState(enum.IntEnum):
     """Door lock state."""
 
-    LOCKED = 0
+    LOCKED = 2
     UNLOCKED = 1
 
 
 class WindowState(enum.IntEnum):
     """Window open/closed state."""
 
-    OPEN = 0
     CLOSED = 1
+    OPEN = 2
 
 
 class PowerGear(enum.IntEnum):
@@ -329,10 +329,7 @@ class VehicleRealtimeData:
         equal to ``GUN_CONNECTED`` (15), which indicates the plug is
         inserted but charging is not active.
         """
-        return (
-            self.charging_state > 0
-            and self.charging_state != ChargingState.GUN_CONNECTED
-        )
+        return self.charging_state > 0 and self.charging_state != ChargingState.GUN_CONNECTED
 
     @property
     def interior_temp_available(self) -> bool:

@@ -46,7 +46,6 @@ if _src.is_dir():
 
 from pybyd import BydClient, BydConfig  # noqa: E402
 
-
 # ── helpers ──────────────────────────────────────────────────
 
 

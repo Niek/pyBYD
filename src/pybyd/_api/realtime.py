@@ -184,7 +184,9 @@ def _parse_vehicle_info(data: dict[str, Any]) -> VehicleRealtimeData:
         right_front_door=_to_enum(DoorOpenState, data.get("rightFrontDoor")),
         left_rear_door=_to_enum(DoorOpenState, data.get("leftRearDoor")),
         right_rear_door=_to_enum(DoorOpenState, data.get("rightRearDoor")),
-        trunk_lid=_to_enum(DoorOpenState, data.get("trunkLid")),
+        trunk_lid=_to_enum(
+            DoorOpenState, data.get("trunkLid") if data.get("trunkLid") is not None else data.get("backCover")
+        ),
         sliding_door=_to_enum(DoorOpenState, data.get("slidingDoor")),
         forehold=_to_enum(DoorOpenState, data.get("forehold")),
         # Locks

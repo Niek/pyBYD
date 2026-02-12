@@ -107,19 +107,19 @@ Parser: `src/pybyd/_api/realtime.py`
 | Doors | `rightFrontDoor` | `right_front_door` | `DoorOpenState | None` | 0=closed (confirmed), 1=open (unconfirmed) |
 | Doors | `leftRearDoor` | `left_rear_door` | `DoorOpenState | None` | 0=closed (confirmed), 1=open (unconfirmed) |
 | Doors | `rightRearDoor` | `right_rear_door` | `DoorOpenState | None` | 0=closed (confirmed), 1=open (unconfirmed) |
-| Doors | `trunkLid` | `trunk_lid` | `DoorOpenState | None` | 0=closed (confirmed), 1=open (unconfirmed) |
+| Doors | `trunkLid` / `backCover` | `trunk_lid` | `DoorOpenState | None` | uses `trunkLid` first, falls back to `backCover`; 0=closed (confirmed), 1=open (unconfirmed) |
 | Doors | `slidingDoor` | `sliding_door` | `DoorOpenState | None` | 0=closed (confirmed), 1=open (unconfirmed) |
 | Doors | `forehold` | `forehold` | `DoorOpenState | None` | frunk; 0=closed (confirmed), 1=open (unconfirmed) |
-| Locks | `leftFrontDoorLock` | `left_front_door_lock` | `LockState | None` | 0=locked (unconfirmed), 1=unlocked (confirmed) |
-| Locks | `rightFrontDoorLock` | `right_front_door_lock` | `LockState | None` | 0=locked (unconfirmed), 1=unlocked (confirmed) |
-| Locks | `leftRearDoorLock` | `left_rear_door_lock` | `LockState | None` | 0=locked (unconfirmed), 1=unlocked (confirmed) |
-| Locks | `rightRearDoorLock` | `right_rear_door_lock` | `LockState | None` | 0=locked (unconfirmed), 1=unlocked (confirmed) |
-| Locks | `slidingDoorLock` | `sliding_door_lock` | `LockState | None` | 0=locked (unconfirmed), 1=unlocked (confirmed) |
-| Windows | `leftFrontWindow` | `left_front_window` | `WindowState | None` | 0=open (unconfirmed), 1=closed (confirmed) |
-| Windows | `rightFrontWindow` | `right_front_window` | `WindowState | None` | 0=open (unconfirmed), 1=closed (confirmed) |
-| Windows | `leftRearWindow` | `left_rear_window` | `WindowState | None` | 0=open (unconfirmed), 1=closed (confirmed) |
-| Windows | `rightRearWindow` | `right_rear_window` | `WindowState | None` | 0=open (unconfirmed), 1=closed (confirmed) |
-| Windows | `skylight` | `skylight` | `WindowState | None` | 0=open (unconfirmed), 1=closed (confirmed) |
+| Locks | `leftFrontDoorLock` | `left_front_door_lock` | `LockState | None` | 2=locked (confirmed), 1=unlocked (confirmed) |
+| Locks | `rightFrontDoorLock` | `right_front_door_lock` | `LockState | None` | 2=locked (confirmed), 1=unlocked (confirmed) |
+| Locks | `leftRearDoorLock` | `left_rear_door_lock` | `LockState | None` | 2=locked (confirmed), 1=unlocked (confirmed) |
+| Locks | `rightRearDoorLock` | `right_rear_door_lock` | `LockState | None` | 2=locked (confirmed), 1=unlocked (confirmed) |
+| Locks | `slidingDoorLock` | `sliding_door_lock` | `LockState | None` | 2=locked (confirmed), 1=unlocked (confirmed) |
+| Windows | `leftFrontWindow` | `left_front_window` | `WindowState | None` | 1=closed (confirmed), 2=open (unconfirmed) |
+| Windows | `rightFrontWindow` | `right_front_window` | `WindowState | None` | 1=closed (confirmed), 2=open (unconfirmed) |
+| Windows | `leftRearWindow` | `left_rear_window` | `WindowState | None` | 1=closed (confirmed), 2=open (unconfirmed) |
+| Windows | `rightRearWindow` | `right_rear_window` | `WindowState | None` | 1=closed (confirmed), 2=open (unconfirmed) |
+| Windows | `skylight` | `skylight` | `WindowState | None` | 1=closed (confirmed), 2=open (unconfirmed) |
 | Tires | `leftFrontTirepressure` | `left_front_tire_pressure` | `float | None` | pressure value in unit given by `tirePressUnit` (confirmed) |
 | Tires | `rightFrontTirepressure` | `right_front_tire_pressure` | `float | None` | pressure value in unit given by `tirePressUnit` (confirmed) |
 | Tires | `leftRearTirepressure` | `left_rear_tire_pressure` | `float | None` | pressure value in unit given by `tirePressUnit` (confirmed) |

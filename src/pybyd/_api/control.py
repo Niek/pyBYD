@@ -385,8 +385,7 @@ async def _poll_remote_control_once(
     else:
         # All rate-limit retries exhausted
         raise BydRateLimitError(
-            f"Remote control {command.name} rate-limited after "
-            f"{rate_limit_retries} retries (code 6024)",
+            f"Remote control {command.name} rate-limited after " f"{rate_limit_retries} retries (code 6024)",
             code="6024",
             endpoint="/control/remoteControl",
         )
