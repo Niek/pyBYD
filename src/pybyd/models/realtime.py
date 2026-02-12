@@ -1,6 +1,6 @@
 """Vehicle realtime data model.
 
-Enum values and field meanings are documented in API_FIELD_MAPPING.md.
+Enum values and field meanings are documented in API_MAPPING.md.
 """
 
 from __future__ import annotations

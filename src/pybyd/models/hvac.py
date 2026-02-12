@@ -1,6 +1,6 @@
 """HVAC / climate control status model.
 
-Mapped from ``/control/getStatusNow`` response documented in API_FIELD_MAPPING.md.
+Mapped from ``/control/getStatusNow`` response documented in API_MAPPING.md.
 """
 
 from __future__ import annotations

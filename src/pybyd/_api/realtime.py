@@ -129,7 +129,7 @@ def _safe_str(value: Any) -> str | None:
 def _parse_vehicle_info(data: dict[str, Any]) -> VehicleRealtimeData:
     """Parse raw vehicle info dict into a typed dataclass.
 
-    Uses enum coercion for known integer-enum fields per API_FIELD_MAPPING.md.
+    Uses enum coercion for known integer-enum fields per API_MAPPING.md.
     Energy consumption fields (totalEnergy, nearestEnergyConsumption,
     recent50kmEnergy) are kept as strings since the API returns ``"--"``
     when values are unavailable.

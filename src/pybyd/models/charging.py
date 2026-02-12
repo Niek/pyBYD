@@ -1,6 +1,6 @@
 """Charging status model.
 
-Mapped from ``/control/smartCharge/homePage`` response documented in API_FIELD_MAPPING.md.
+Mapped from ``/control/smartCharge/homePage`` response documented in API_MAPPING.md.
 """
 
 from __future__ import annotations
